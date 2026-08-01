@@ -36,6 +36,7 @@ sys.path.insert(0, str(Path(__file__).parent))
 
 from data_utils import fetch_boc_data
 from strategies import STRATEGY_REGISTRY, BaseStrategy
+from strategies.combo import ComboStrategy, print_combo_result
 from backtest_engine import BacktestEngine, BacktestResult, print_result
 
 
@@ -124,7 +125,17 @@ def run_strategy(name: str, df, args) -> BacktestResult | None:
     # 生成信号
     result = strategy.run(df)
 
-    # 回测
+    # 组合策略走独立回测逻辑（双账户分仓）
+    if isinstance(strategy, ComboStrategy):
+        result = strategy.run(df, initial_capital=args.capital)
+        print_combo_result(result)
+
+        if args.plot:
+            plot_combo_result(result, strategy.description)
+
+        return result
+
+    # 标准回测
     engine = BacktestEngine(initial_capital=args.capital)
     bt_result = engine.run(df, result.signals)
 
@@ -145,6 +156,48 @@ def run_strategy(name: str, df, args) -> BacktestResult | None:
         plot_result(bt_result, strategy.description)
 
     return bt_result
+
+
+def plot_combo_result(result, title: str):
+    """绘制组合策略权益曲线"""
+    try:
+        import matplotlib.pyplot as plt
+        import matplotlib.dates as mdates
+        plt.rcParams["font.sans-serif"] = ["SimHei", "Microsoft YaHei", "DejaVu Sans"]
+        plt.rcParams["axes.unicode_minus"] = False
+
+        equity = result.equity_curve
+        m = result.metrics
+
+        fig, axes = plt.subplots(2, 1, figsize=(14, 8), gridspec_kw={"height_ratios": [3, 1]})
+
+        ax1 = axes[0]
+        ax1.plot(equity.index, equity.values, label="组合", linewidth=1.5, color="#2ca02c")
+        ax1.axhline(y=100_000, color="gray", linewidth=0.5, linestyle=":")
+        ax1.set_title(f"组合策略 — {title}", fontsize=14, fontweight="bold")
+        ax1.set_ylabel("权益 (元)")
+        ax1.legend(loc="upper left")
+        ax1.grid(True, alpha=0.3)
+        info_text = (f"收益: {m['total_return']:.1%}  "
+                     f"夏普: {m['sharpe_ratio']:.2f}  "
+                     f"回撤: {m['max_drawdown']:.1%}")
+        ax1.text(0.02, 0.95, info_text, transform=ax1.transAxes,
+                 fontsize=10, verticalalignment="top",
+                 bbox=dict(boxstyle="round", facecolor="wheat", alpha=0.5))
+
+        ax2 = axes[1]
+        peak = equity.expanding().max()
+        drawdown = (equity - peak) / peak * 100
+        ax2.fill_between(drawdown.index, drawdown.values, 0, color="#d62728", alpha=0.3)
+        ax2.plot(drawdown.index, drawdown.values, color="#d62728", linewidth=0.8)
+        ax2.set_ylabel("回撤 (%)")
+        ax2.set_xlabel("日期")
+        ax2.grid(True, alpha=0.3)
+
+        plt.tight_layout()
+        plt.show()
+    except Exception as e:
+        print(f"[绘图] 绘图失败: {e}")
 
 
 def plot_result(bt_result: BacktestResult, title: str):
@@ -196,6 +249,16 @@ def run_all(df, args):
     results = []
     for name, cls in STRATEGY_REGISTRY.items():
         strategy = cls()
+
+        # 组合策略特殊处理
+        if isinstance(strategy, ComboStrategy):
+            sr = strategy.run(df, initial_capital=args.capital)
+            m = sr.metrics
+            print(f"  ✓ {name:<15s}  {m['total_return']:>8.2%}  Sharpe={m['sharpe_ratio']:>6.2f}  "
+                  f"MDD={m['max_drawdown']:>8.2%}  Vol={m['vol_trades']}+PB={m['pb_trades']}笔")
+            results.append((name, strategy.description, sr))
+            continue
+
         sr = strategy.run(df)
         engine = BacktestEngine(initial_capital=args.capital)
         bt = engine.run(df, sr.signals)
@@ -207,10 +270,25 @@ def run_all(df, args):
     print(f"\n{'='*60}")
     print(f"  策略排名（按总收益率）")
     print(f"{'='*60}")
-    sorted_results = sorted(results, key=lambda x: x[2].total_return, reverse=True)
-    for rank, (name, desc, bt) in enumerate(sorted_results, 1):
-        print(f"  {rank:2d}. {name:<15s} {bt.total_return:>8.2%}  Sharpe={bt.sharpe_ratio:.2f}  "
-              f"MDD={bt.max_drawdown:.2%}  {desc}")
+
+    def _get_return(item):
+        _, _, obj = item
+        if hasattr(obj, "metrics"):
+            return obj.metrics["total_return"]
+        return obj.total_return
+
+    sorted_results = sorted(results, key=_get_return, reverse=True)
+    for rank, (name, desc, obj) in enumerate(sorted_results, 1):
+        if hasattr(obj, "metrics"):
+            ret = obj.metrics["total_return"]
+            sharpe = obj.metrics["sharpe_ratio"]
+            mdd = obj.metrics["max_drawdown"]
+        else:
+            ret = obj.total_return
+            sharpe = obj.sharpe_ratio
+            mdd = obj.max_drawdown
+        print(f"  {rank:2d}. {name:<15s} {ret:>8.2%}  Sharpe={sharpe:.2f}  "
+              f"MDD={mdd:.2%}  {desc}")
 
 
 # ── 入口 ────────────────────────────────────────
