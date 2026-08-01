@@ -28,6 +28,7 @@ from .pairs_trading import PairsTrading
 from .index_linkage import IndexLinkage
 from .pb_valuation import PBValuation
 from .combo import ComboStrategy, print_combo_result
+from .dynamic_alloc import DynamicAllocation, print_dynamic_result
 
 # 策略注册表 — 按名称快速切换
 STRATEGY_REGISTRY = {
@@ -43,6 +44,7 @@ STRATEGY_REGISTRY = {
     "index": IndexLinkage,
     "pb": PBValuation,
     "combo": ComboStrategy,
+    "dynamic": DynamicAllocation,
 }
 
 __all__ = [
