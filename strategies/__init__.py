@@ -27,6 +27,7 @@ from .earnings import EarningsStrategy
 from .pairs_trading import PairsTrading
 from .index_linkage import IndexLinkage
 from .pb_valuation import PBValuation
+from .combo import ComboStrategy, print_combo_result
 
 # 策略注册表 — 按名称快速切换
 STRATEGY_REGISTRY = {
@@ -41,6 +42,7 @@ STRATEGY_REGISTRY = {
     "pairs": PairsTrading,
     "index": IndexLinkage,
     "pb": PBValuation,
+    "combo": ComboStrategy,
 }
 
 __all__ = [
